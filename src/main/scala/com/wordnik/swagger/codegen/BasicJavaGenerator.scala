@@ -78,6 +78,7 @@ class BasicJavaGenerator extends BasicGenerator {
 
   // import/require statements for specific datatypes
   override def importMapping = Map(
+    "File" -> "java.io.File",
     "Date" -> "java.util.Date",
     "Array" -> "java.util.*",
     "ArrayList" -> "java.util.*",
@@ -91,6 +92,11 @@ class BasicJavaGenerator extends BasicGenerator {
 
   // file suffix
   override def fileSuffix = ".java"
+
+  override def toVarName(name: String): String = {
+    val paramName = name.replaceAll("[^a-zA-Z0-9_]","")
+    super.toVarName(paramName)
+  }
 
   // response classes
   override def processResponseClass(responseClass: String): Option[String] = {
@@ -120,8 +126,10 @@ class BasicJavaGenerator extends BasicGenerator {
     val declaredType = dt.indexOf("[") match {
       case -1 => dt
       case n: Int => {
-        if (dt.substring(0, n).toLowerCase == "array")
+        if (dt.substring(0, n) == "Array")
           "List" + dt.substring(n).replaceAll("\\[", "<").replaceAll("\\]", ">")
+        else if (dt.substring(0, n) == "Set")
+          "Set" + dt.substring(n).replaceAll("\\[", "<").replaceAll("\\]", ">")
         else dt.replaceAll("\\[", "<").replaceAll("\\]", ">")
       }
     }
@@ -141,7 +149,22 @@ class BasicJavaGenerator extends BasicGenerator {
         val inner = {
           obj.items match {
             case Some(items) => items.ref.getOrElse(items.`type`)
-            case _ => throw new Exception("no inner type defined")
+            case _ => {
+              println("failed on " + declaredType + ", " + obj)
+              throw new Exception("no inner type defined")
+            }
+          }
+        }
+        declaredType += "<" + toDeclaredType(inner) + ">"
+      }
+      case "Set" => {
+        val inner = {
+          obj.items match {
+            case Some(items) => items.ref.getOrElse(items.`type`)
+            case _ => {
+              println("failed on " + declaredType + ", " + obj)
+              throw new Exception("no inner type defined")
+            }
           }
         }
         declaredType += "<" + toDeclaredType(inner) + ">"
@@ -166,7 +189,10 @@ class BasicJavaGenerator extends BasicGenerator {
         val inner = {
           obj.items match {
             case Some(items) => items.ref.getOrElse(items.`type`)
-            case _ => throw new Exception("no inner type defined")
+            case _ => {
+              println("failed on " + dataType + ", " + obj)
+              throw new Exception("no inner type defined")
+            }
           }
         }
         "new ArrayList<" + toDeclaredType(inner) + ">" + "()"

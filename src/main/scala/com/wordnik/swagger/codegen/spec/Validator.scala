@@ -18,6 +18,7 @@ package com.wordnik.swagger.codegen.spec
 
 import com.wordnik.swagger.codegen.util.{CoreUtils, ApiExtractor, ResourceExtractor}
 import com.wordnik.swagger.codegen.PathUtil
+import com.wordnik.swagger.model._
 
 import scala.collection.JavaConversions._
 
@@ -27,9 +28,20 @@ object Validator extends PathUtil {
       throw new RuntimeException("Need url to Resource Listing as argument. You can also specify VM Argument -DfileMap=/path/to/resourceListing")
     }
     val host = args(0)
-    val apiKey = {
-      if (args.length > 1) Some("?api_key=" + args(1))
-      else None
+    val authorization = {
+      Option (System.getProperty("header")) match {
+        case Some(e) => {
+          // this is ugly and will be replaced with proper arg parsing like in ScalaAsyncClientGenerator soon
+          val authInfo = e.split(":")
+          Some(ApiKeyValue(authInfo(0), "header", authInfo(1)))
+        }
+        case _ => {
+          if (args.length > 1) {
+            Some(ApiKeyValue("api_key", "query", args(1)))
+          }
+          else None
+        }
+      }
     }
 
     val outputFilename = {
@@ -38,14 +50,14 @@ object Validator extends PathUtil {
     }
     val doc = {
       try {
-        ResourceExtractor.fetchListing(getResourcePath(host), apiKey)
+        ResourceExtractor.fetchListing(getResourcePath(host), authorization)
       } catch {
         case e: Exception => throw new Exception("unable to read from " + host, e)
       }
     }
 
     val basePath = getBasePath(host, doc.basePath)
-    val apis = ApiExtractor.fetchApiListings(doc.swaggerVersion, basePath, doc.apis, apiKey)
+    val apis = ApiExtractor.fetchApiListings(doc.swaggerVersion, basePath, doc.apis, authorization)
     val swaggerSpecValidator = new SwaggerSpecValidator(doc, apis, false)
     swaggerSpecValidator.validate()
     swaggerSpecValidator.generateReport(host, outputFilename)

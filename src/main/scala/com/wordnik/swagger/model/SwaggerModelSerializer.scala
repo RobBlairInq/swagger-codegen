@@ -24,7 +24,8 @@ object SwaggerSerializers {
     ("string", "date-time") -> "Date",
 
     // containers
-    ("array", "") -> "Array"
+    ("array", "") -> "Array",
+    ("set", "") -> "Set"
   )
 
   def toJsonSchema(name: String, `type`: String): JObject = {
@@ -66,7 +67,7 @@ object SwaggerSerializers {
   }
 
   def isSimpleType(name: String) = {
-    Set("int", "long", "float", "double", "string", "byte", "boolean", "Date", "date", "date-time", "array").contains(name)
+    Set("int", "long", "float", "double", "string", "byte", "boolean", "Date", "date", "date-time", "array", "set").contains(name)
   }
 
   def formats(version: String) = {
@@ -86,6 +87,7 @@ object SwaggerSerializers {
           new ResourceListingSerializer +
           new ApiListingSerializer
       }
+      case _ => throw new IllegalArgumentException("%s is not a valid Swagger version".format(version))
     }
   }
 
@@ -236,19 +238,39 @@ object SwaggerSerializers {
   class OperationSerializer extends CustomSerializer[Operation](implicit formats => ({
     case json =>
 
-      val responseClass = (json \ "items") match {
-        case e: JObject => {
-          val inner = {
-            (e \ "type").extractOrElse({
-              (e \ "$ref").extract[String]
-            })
+      val t =  SwaggerSerializers.jsonSchemaTypeMap.getOrElse(
+            ((json \ "type").extractOrElse(""), (json \ "format").extractOrElse(""))
+          , (json \ "type").extractOrElse(""))
+
+      val inner = {
+        val items = new scala.collection.mutable.HashSet[String]
+        val map = new scala.collection.mutable.HashMap[String, String]
+        (json \ "items") match {
+          case JObject(e) => {
+            for(a <- e) {
+              a._2 match {
+                case e: JString => map += a._1 -> e.s
+                case _ =>
+              }
+            }
+            val `type` = map.getOrElse("type", "")
+            val format = map.getOrElse("format", "")
+            if(map.contains("$ref")) {
+              Some(map("$ref"))
+            }
+            else
+              Option(jsonSchemaTypeMap.getOrElse((`type`,format), `type`))
           }
-          "%s[%s]".format((json \ "type").extract[String], inner)
+          case _ => None
         }
-        case _ => (json \ "type").extractOrElse({
-          !!(json, OPERATION, "responseClass", "missing required field", ERROR)
-          ""
-        })
+      }
+      val responseClass = inner match {
+        case Some(a) => "%s[%s]".format(t, a)
+        case _ => t
+      }
+
+      if(responseClass == "" || responseClass == null){
+        !!(json, OPERATION, "responseClass", "missing required field", ERROR)
       }
 
       Operation(
@@ -359,7 +381,7 @@ object SwaggerSerializers {
               Some(map("$ref"))
             }
             else
-              Option(jsonSchemaTypeMap.getOrElse((`type`,format), null))
+              Option(jsonSchemaTypeMap.getOrElse((`type`,format), `type`))
           }
           case _ => None
         }
@@ -440,7 +462,7 @@ object SwaggerSerializers {
           ""
         }),
         (json \ "name").extractOrElse(""),
-        (json \ "id").extractOrElse(""),
+        (json \ "qualifiedType").extractOrElse((json \ "id").extractOrElse("")),
         output,
         (json \ "description").extractOpt[String]
       )
@@ -472,9 +494,16 @@ object SwaggerSerializers {
         case e: JString => e.s
         case _ => {
           // convert the jsonschema types into swagger types.  Note, this logic will move elsewhere soon
-          SwaggerSerializers.jsonSchemaTypeMap.getOrElse(
+          val t = SwaggerSerializers.jsonSchemaTypeMap.getOrElse(
             ((json \ "type").extractOrElse(""), (json \ "format").extractOrElse(""))
           , (json \ "type").extractOrElse(""))
+          val isUnique = (json \ "uniqueItems") match {
+            case e: JBool => e.value
+            case e: JString => e.s.toBoolean
+            case _ => false
+          }
+          if(t == "Array" && isUnique) "Set"
+          else t
         }
       }
 
@@ -508,7 +537,7 @@ object SwaggerSerializers {
       }
       ModelProperty(
         `type` = `type`,
-        `qualifiedType` = `type`,
+        `qualifiedType` = (json \ "qualifiedType").extractOpt[String].getOrElse(`type`),
         required = (json \ "required") match {
           case e:JString => e.s.toBoolean
           case e:JBool => e.value

@@ -115,6 +115,7 @@ class Codegen(config: CodegenConfig) {
         case true =>
       }
     })
+
     allImports --= config.defaultIncludes
     allImports --= primitives
     allImports --= containers
@@ -170,7 +171,7 @@ class Codegen(config: CodegenConfig) {
 
   protected def compileTemplate(templateFile: String, rootDir: Option[File] = None, engine: Option[TemplateEngine] = None): (String, (TemplateEngine, Template)) = {
     val engine = new TemplateEngine(rootDir orElse Some(new File(".")))
-    val srcName = config.templateDir + File.separator + templateFile
+    val srcName = config.templateDir + "/" + templateFile
     val srcStream = {
       getClass.getClassLoader.getResourceAsStream(srcName) match {
         case is: java.io.InputStream => is
@@ -205,18 +206,19 @@ class Codegen(config: CodegenConfig) {
     val pathParams = new ListBuffer[AnyRef]
     val headerParams = new ListBuffer[AnyRef]
     val bodyParams = new ListBuffer[AnyRef]
+    val formParams = new ListBuffer[AnyRef]
     var paramList = new ListBuffer[HashMap[String, AnyRef]]
     var errorList = new ListBuffer[HashMap[String, AnyRef]]
+    var bodyParamRequired: Option[String] = Some("true")
     
     if (operation.responseMessages != null) {
-		operation.responseMessages.foreach(param => { 
-		 val params = new HashMap[String, AnyRef]
-		 params += "code" -> param.code.toString()
- 		 params += "reason" -> param.message
- 		 params += "hasMore" -> "true"
- 		 errorList += params	 
- 		 })
- 		 
+  		operation.responseMessages.foreach(param => { 
+        val params = new HashMap[String, AnyRef]
+        params += "code" -> param.code.toString()
+        params += "reason" -> param.message
+        params += "hasMore" -> "true"
+        errorList += params	 
+      })
     }
 
     if (operation.parameters != null) {
@@ -225,11 +227,21 @@ class Codegen(config: CodegenConfig) {
         params += (param.paramType + "Parameter") -> "true"
         params += "type" -> param.paramType
         params += "defaultValue" -> config.toDefaultValue(param.dataType, param.defaultValue.getOrElse(""))
-        params += "dataType" -> config.toDeclaredType(param.dataType)
         params += "swaggerDataType" -> param.dataType
         params += "description" -> param.description
         params += "hasMore" -> "true"
         params += "allowMultiple" -> param.allowMultiple.toString
+
+        val u = param.dataType.indexOf("[") match {
+          case -1 => config.toDeclaredType(param.dataType)
+          case n: Int => {
+            val ComplexTypeMatcher = "(.*)\\[(.*)\\].*".r
+            val ComplexTypeMatcher(container, basePart) = param.dataType
+            config.toDeclaredType(container + "[" + config.toDeclaredType(basePart) + "]")
+          }
+        }
+
+        params += "dataType" -> u
 
         param.allowableValues match {
           case a: AllowableValues => params += "allowableValues" -> allowableValuesToString(a)
@@ -245,8 +257,9 @@ class Codegen(config: CodegenConfig) {
             params += "baseName" -> "body"
             param.required match {
               case true => params += "required" -> "true"
-              case _ =>
+              case _ => bodyParamRequired = None
             }
+
             bodyParam = Some("body")
             bodyParams += params.clone
           }
@@ -267,6 +280,12 @@ class Codegen(config: CodegenConfig) {
             params += "baseName" -> param.name
             params += "required" -> param.required.toString
             headerParams += params.clone
+          }
+          case "form" => {
+            params += "paramName" -> config.toVarName(param.name)
+            params += "baseName" -> param.name
+            params += "required" -> param.required.toString
+            formParams += params.clone
           }
           case x @ _ => throw new Exception("Unknown parameter type: " + x)
         }
@@ -336,15 +355,18 @@ class Codegen(config: CodegenConfig) {
         "notes" -> operation.notes,
         "deprecated" -> operation.`deprecated`,
         "bodyParam" -> bodyParam,
+        "bodyParamRequired" -> bodyParamRequired,
         "emptyBodyParam" -> (if (writeMethods contains operation.method.toUpperCase) "{}" else ""),
         "allParams" -> sp,
         "bodyParams" -> bodyParams.toList,
         "pathParams" -> pathParams.toList,
         "queryParams" -> queryParams.toList,
         "headerParams" -> headerParams.toList,
+        "formParams" -> formParams.toList,
         "requiredParams" -> requiredParams.toList,
         "errorList" -> errorList,
         "httpMethod" -> operation.method.toUpperCase,
+        "httpMethodLowerCase" -> operation.method.toLowerCase,
         operation.method.toLowerCase -> "true")
     if (requiredParams.size > 0) properties += "requiredParamCount" -> requiredParams.size.toString
     operation.responseClass.indexOf("[") match {
@@ -406,13 +428,15 @@ class Codegen(config: CodegenConfig) {
       baseType = config.typeMapping.contains(baseType) match {
         case true => config.typeMapping(baseType)
         case false => {
-          imports += Map("import" -> config.toDeclaredType(baseType))
+          // imports += Map("import" -> config.toDeclaredType(baseType))
           baseType
         }
       }
       (config.defaultIncludes ++ config.languageSpecificPrimitives).toSet.contains(baseType) match {
         case true =>
-        case _ => imports += Map("import" -> baseType)
+        case _ => {
+          imports += Map("import" -> baseType)
+        }
       }
 
       val isList = (if (isListType(propertyDocSchema.`type`)) true else None)
@@ -476,6 +500,18 @@ class Codegen(config: CodegenConfig) {
     }
   }
 
+  def writeJson(m: AnyRef): String = {
+    Option(System.getProperty("modelFormat")) match {
+      case Some(e) if e =="1.1" => write1_1(m)
+      case _ => write(m)
+    }
+  }
+
+  def write1_1(m: AnyRef): String = {
+    implicit val formats = SwaggerSerializers.formats("1.1")
+    write(m)
+  }
+
   def writeSupportingClasses(apis: Map[(String, String), List[(String, Operation)]], models: Map[String, Model]) = {
     val rootDir = new java.io.File(".")
     val engine = new TemplateEngine(Some(rootDir))
@@ -495,7 +531,7 @@ class Codegen(config: CodegenConfig) {
     val modelList = new ListBuffer[HashMap[String, AnyRef]]
 
     models.foreach(m => {
-      val json = write(m._2)
+      val json = writeJson(m._2)
 
       modelList += HashMap(
         "modelName" -> m._1,
@@ -559,7 +595,7 @@ class Codegen(config: CodegenConfig) {
     engine.compiler.shutdown()
   }
 
-  protected def isListType(dt: String) = isCollectionType(dt, "List") || isCollectionType(dt, "Array")
+  protected def isListType(dt: String) = isCollectionType(dt, "List") || isCollectionType(dt, "Array") || isCollectionType(dt, "Set")
 
   protected def isMapType(dt: String) = isCollectionType(dt, "Map")
 

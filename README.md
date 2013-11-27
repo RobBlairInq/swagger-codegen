@@ -8,11 +8,15 @@ http://swagger.wordnik.com.  For more information about Wordnik's APIs, please v
 ### Prerequisites
 You need the following installed and available in your $PATH:
 
-* [Java 1.6](http://java.oracle.com)
+* [Java 1.7](http://java.oracle.com)
+
+Note!  Some folks have had issues with OOM errors with java version "1.6.0_51".  It's strongly suggested that you upgrade to 1.7!
 
 * [Apache maven 3.0.3 or greater](http://maven.apache.org/)
 
 * [Scala 2.9.1](http://www.scala-lang.org)
+
+* [sbt (only download if you're building on Windows)](http://www.scala-sbt.org/)
 
 You also need to add the scala binary to your PATH.
 
@@ -21,6 +25,13 @@ After cloning the project, you need to build it from source with this command:
 ```
 ./sbt assembly
 ```
+
+or for Windows...
+
+```
+sbt assembly
+```
+
 
 ### To generate a sample client library
 You can build a client against Wordnik's [petstore](http://petstore.swagger.wordnik.com) API as follows:

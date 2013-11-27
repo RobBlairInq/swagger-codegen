@@ -27,21 +27,30 @@ class BasicScalaGenerator extends BasicGenerator {
     "Int",
     "String",
     "Long",
+    "Short",
+    "Char",
+    "Byte",
     "Float",
     "Double",
     "Boolean",
+    "AnyRef",
     "Any")
 
   override def typeMapping = Map(
     "array" -> "List",
+    "set" -> "Set",
     "boolean" -> "Boolean",
     "string" -> "String",
     "int" -> "Int",
+    "long" -> "Long",
     "float" -> "Float",
+    "byte" -> "Byte",
+    "short" -> "Short",
+    "char" -> "Char",
     "long" -> "Long",
     "double" -> "Double",
-    "file" -> "File",
-    "object" -> "Any")
+    "object" -> "Any",
+    "file" -> "File")
 
   // template used for models
   modelTemplateFiles += "model.mustache" -> ".scala"
@@ -56,7 +65,47 @@ class BasicScalaGenerator extends BasicGenerator {
   override def destinationDir = "generated-code/scala/src/main/scala"
 
   // reserved words which need special quoting
-  override def reservedWords = Set("type", "package", "match", "object")
+  override def reservedWords =
+    Set(
+      "abstract",
+      "case",
+      "catch",
+      "class",
+      "def",
+      "do",
+      "else",
+      "extends",
+      "false",
+      "final",
+      "finally",
+      "for",
+      "forSome",
+      "if",
+      "implicit",
+      "import",
+      "lazy",
+      "match",
+      "new",
+      "null",
+      "object",
+      "override",
+      "package",
+      "private",
+      "protected",
+      "return",
+      "sealed",
+      "super",
+      "this",
+      "throw",
+      "trait",
+      "try",
+      "true",
+      "type",
+      "val",
+      "var",
+      "while",
+      "with",
+      "yield")
 
   // import/require statements for specific datatypes
   override def importMapping = Map(
@@ -85,7 +134,7 @@ class BasicScalaGenerator extends BasicGenerator {
         val ComplexTypeMatcher = "(.*)\\[(.*)\\].*".r
         val t = e match {
           case ComplexTypeMatcher(container, inner) => {
-            e.replaceAll(container, typeMapping.getOrElse(container, container))
+            e.replaceAll(container, typeMapping.getOrElse(container.toLowerCase, container))
           }
           case _ => e
         }
@@ -98,8 +147,10 @@ class BasicScalaGenerator extends BasicGenerator {
     val declaredType = dt.indexOf("[") match {
       case -1 => dt
       case n: Int => {
-        if (dt.substring(0, n).toLowerCase == "array")
+        if (dt.substring(0, n) == "Array")
           "List" + dt.substring(n)
+        else if (dt.substring(0, n) == "Set")
+          "Set" + dt.substring(n)
         else dt
       }
     }
@@ -112,20 +163,39 @@ class BasicScalaGenerator extends BasicGenerator {
         val inner = {
           obj.items match {
             case Some(items) => items.ref.getOrElse(items.`type`)
-            case _ => throw new Exception("no inner type defined")
+            case _ => {
+              println("failed on " + obj)
+              throw new Exception("no inner type defined")
+            }
           }
         }
-        val e = "List[%s]" format toDeclaredType(inner)
+        val e = "List[%s]".format(toDeclaredType(inner))
         (e, toDefaultValue(inner, obj))
       }
       case "List" => {
         val inner = {
           obj.items match {
             case Some(items) => items.ref.getOrElse(items.`type`)
-            case _ => throw new Exception("no inner type defined")
+            case _ => {
+              println("failed on " + obj)
+              throw new Exception("no inner type defined")
+            }
           }
         }
-        val e = "List[%s]" format toDeclaredType(inner)
+        val e = "List[%s]".format(toDeclaredType(inner))
+        (e, toDefaultValue(inner, obj))
+      }
+      case "Set" => {
+        val inner = {
+          obj.items match {
+            case Some(items) => items.ref.getOrElse(items.`type`)
+            case _ => {
+              println("failed on " + obj)
+              throw new Exception("no inner type defined")
+            }
+          }
+        }
+        val e = "Set[%s]".format(toDeclaredType(inner))
         (e, toDefaultValue(inner, obj))
       }
       case e: String => (toDeclaredType(e), toDefaultValue(e, obj))
